@@ -248,6 +248,20 @@ function createGraph(graph) {
     .attr("height", currentHeight)
     .call(zoom); // call it once here
 
+  // Add arrowhead marker definition
+  svg.append("defs")
+    .append("marker")
+    .attr("id", "arrowhead")
+    .attr("viewBox", "0 -5 10 10")
+    .attr("refX", 18) // Adjust based on node size
+    .attr("refY", 0)
+    .attr("markerWidth", 8)
+    .attr("markerHeight", 8)
+    .attr("orient", "auto")
+    .attr("fill", "#999")
+    .append("path")
+    .attr("d", "M0,-5L10,0L0,5");
+
   // Add container group for zoom/pan
   const container = svg.append("g");
   currentContainer = container;
@@ -302,7 +316,8 @@ function createGraph(graph) {
     .selectAll("line")
     .data(graph.links)
     .join("line")
-    .attr("class", "link");
+    .attr("class", "link")
+    .attr("marker-end", "url(#arrowhead)");
 
   const popup = d3.select("#popup");
 
@@ -423,11 +438,32 @@ function createGraph(graph) {
   popup.on("click", null);
 
   simulation.on("tick", () => {
+    const scaleInput = document.querySelector('input[type="range"][oninput*="setNodeSize"]');
+    const scale_percentage = scaleInput ? scaleInput.value / 100 : 1;
+    const arrowLength = 5; // Try 8 or 10, adjust for best fit
+
     link
       .attr("x1", (d) => d.source.x)
       .attr("y1", (d) => d.source.y)
-      .attr("x2", (d) => d.target.x)
-      .attr("y2", (d) => d.target.y);
+      .attr("x2", (d) => {
+        const dx = d.target.x - d.source.x;
+        const dy = d.target.y - d.source.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const sizes = getNodeSizes(d.target, scale_percentage);
+        // Subtract arrowLength from halo radius
+        const r = Math.max(0, sizes.haloRadius - arrowLength);
+        if (dist === 0) return d.target.x;
+        return d.target.x - (dx / dist) * r;
+      })
+      .attr("y2", (d) => {
+        const dx = d.target.x - d.source.x;
+        const dy = d.target.y - d.source.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const sizes = getNodeSizes(d.target, scale_percentage);
+        const r = Math.max(0, sizes.haloRadius - arrowLength);
+        if (dist === 0) return d.target.y;
+        return d.target.y - (dy / dist) * r;
+      });
 
     nodeGroup.attr("transform", (d) => `translate(${d.x},${d.y})`);
     nodeGroup.select(".node-label").attr("x", 0).attr("y", 0);
@@ -691,6 +727,25 @@ function setNodeSize(scale) {
     group.select("circle.fallback").attr("r", sizes.fallbackRadius);
     group.select(".node-label").attr("dx", sizes.haloRadius + labelPadding);
   });
+
+  // Force simulation to update node positions
+  if (simulation) {
+    simulation.alpha(0.3).restart();
+  }
+
+  // // Update link endpoints so arrowheads stay at the edge of the halo
+  // d3.selectAll("line.link").each(function (d) {
+  //   const dx = d.target.x - d.source.x;
+  //   const dy = d.target.y - d.source.y;
+  //   const dist = Math.sqrt(dx * dx + dy * dy);
+  //   const sizes = getNodeSizes(d.target, scale_percentage);
+  //   const r = sizes.haloRadius;
+  //   const x2 = dist === 0 ? d.target.x : d.target.x - (dx / dist) * r;
+  //   const y2 = dist === 0 ? d.target.y : d.target.y - (dy / dist) * r;
+  //   d3.select(this)
+  //     .attr("x2", x2)
+  //     .attr("y2", y2);
+  // });
 }
 
 function getNodeSizes(d, scale_percentage = 1) {
