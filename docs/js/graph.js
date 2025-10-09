@@ -14,12 +14,14 @@ const NODE_FILL = "#d9e1e7ff";
 const NODE_FIXED_STROKE = "#378ccdff";
 const NODE_FLOATING_STROKE = "#e0b169ff";
 const NODE_STROKE_WIDTH = 3;
+const IMAGE_SIZE = 75;
 
 const iconConfig = {
   "Web Map": {
     image:
       "https://cdn-a.arcgis.com/cdn/1BE082D/js/arcgis-app-components/arcgis-app/assets/arcgis-item-type/maps16.svg",
     size: 30,
+    ratio: 2,
   },
   "Feature Service": {
     image:
@@ -35,6 +37,7 @@ const iconConfig = {
     image:
       "https://cdn-a.arcgis.com/cdn/1BE082D/js/arcgis-app-components/arcgis-app/assets/arcgis-item-type/instantapps16.svg",
     size: 30,
+    ratio: 2,
   },
   Notebook: {
     image:
@@ -50,6 +53,7 @@ const iconConfig = {
     image:
       "https://cdn-a.arcgis.com/cdn/1BE082D/js/arcgis-app-components/arcgis-app/assets/arcgis-item-type/experiencebuilder16.svg",
     size: 30,
+    ratio: 2,
   },
   "Service Definition": {
     image:
@@ -85,6 +89,7 @@ const iconConfig = {
     image:
       "https://cdn-a.arcgis.com/cdn/1BE082D/js/arcgis-app-components/arcgis-app/assets/arcgis-item-type/dashboard16.svg",
     size: 30,
+    ratio: 2,
   },
   Image: {
     image:
@@ -374,58 +379,43 @@ function createGraph(graph) {
       updateHaloColor(node, d);
     });
 
-  // Add halo circle
+  const scaleInput = document.querySelector('input[type="range"][oninput*="setNodeSize"]');
+  const scale_percentage = scaleInput ? scaleInput.value / 100 : 1;
+
   nodeGroup
     .append("circle")
     .attr("class", "halo")
-    .attr("r", (d) => {
-      const config = iconConfig[d.type];
-      return config
-        ? config.size / 2 + 5 + NODE_STROKE_WIDTH
-        : 15 + NODE_STROKE_WIDTH;
-    })
+    .attr("r", (d) => getNodeSizes(d, scale_percentage).haloRadius)
     .attr("fill", NODE_FILL)
     .attr("stroke", (d) =>
       d.fx != null || d.fy != null ? NODE_FIXED_STROKE : NODE_FLOATING_STROKE
     )
     .attr("stroke-width", NODE_STROKE_WIDTH);
 
-  // Add image if type is known
   nodeGroup
     .append("image")
     .attr("xlink:href", (d) => iconConfig[d.type]?.image || "")
-    .attr("width", (d) => iconConfig[d.type]?.size || 0)
-    .attr("height", (d) => iconConfig[d.type]?.size || 0)
-    .attr("x", (d) => -(iconConfig[d.type]?.size || 0) / 2)
-    .attr("y", (d) => -(iconConfig[d.type]?.size || 0) / 2)
+    .attr("width", (d) => getNodeSizes(d, scale_percentage).imageSize)
+    .attr("height", (d) => getNodeSizes(d, scale_percentage).imageSize)
+    .attr("x", (d) => -getNodeSizes(d, scale_percentage).imageSize / 2)
+    .attr("y", (d) => -getNodeSizes(d, scale_percentage).imageSize / 2)
     .attr("display", (d) => (iconConfig[d.type] ? "block" : "none"));
 
-  // Fallback: add a circle if no image
   nodeGroup
     .append("circle")
-    .attr("r", 10)
+    .attr("class", "fallback")
+    .attr("r", (d) => getNodeSizes(d, scale_percentage).fallbackRadius)
     .attr("fill", (d) => {
-      if (iconConfig[d.type]) return "none"; // hide fallback circle if icon exists
+      if (iconConfig[d.type]) return "none";
       if (d.fx != null || d.fy != null) return "#ff7f0e";
       if (d.selected) return "#1f77b4";
       return "#69b3a2";
     });
 
-  // ...existing code for nodeGroup...
-
-  // Add labels as part of nodeGroup
   nodeGroup
     .append("text")
     .attr("class", "node-label")
-    .attr("dx", (d) => {
-      const config = iconConfig[d.type];
-      const baseIconSize = config ? config.size : 15;
-      const scaleInput = document.querySelector(
-        'input[type="range"][oninput*="setNodeSize"]'
-      );
-      const scale_percentage = scaleInput ? scaleInput.value / 100 : 1;
-      return (baseIconSize * scale_percentage) / 2 + labelPadding; // 50px padding, adjust as needed
-    })
+    .attr("dx", (d) => getNodeSizes(d, scale_percentage).haloRadius + labelPadding)
     .attr("dy", 4)
     .text((d) => d.name);
 
@@ -686,42 +676,31 @@ function resetAllNodesToFloating() {
 }
 
 function setNodeSize(scale) {
-  // scale is a multiplier, e.g. 1 = original size, 1.5 = 50% bigger, 0.5 = half size
-
-  console.log(scale);
-  scale_percentage = scale / 100;
-  console.log(scale_percentage);
+  const scale_percentage = scale / 100;
 
   d3.selectAll("g.node-group").each(function (d) {
     const group = d3.select(this);
-    const config = iconConfig[d.type];
-    const baseIconSize = config ? config.size : 15; // fallback base size if no icon
-    // Calculate scaled icon size
-    const iconSize = baseIconSize * scale_percentage;
+    const sizes = getNodeSizes(d, scale_percentage);
 
-    // Halo radius = (iconSize / 2) + 5 + NODE_STROKE_WIDTH (same formula as original)
-    const haloRadius = iconSize / 2 + 5 + NODE_STROKE_WIDTH;
-
-    // Update halo circle radius
-    group.select("circle.halo").attr("r", haloRadius);
-
-    // Update image size and position
-    group
-      .select("image")
-      .attr("width", iconSize)
-      .attr("height", iconSize)
-      .attr("x", -iconSize / 2)
-      .attr("y", -iconSize / 2);
-
-    // Update fallback circle radius
-    // Original fallback radius was 10, so scale that as well:
-    const fallbackRadius = 10 * scale_percentage;
-    group.select("circle.fallback").attr("r", fallbackRadius);
-
-    // Update label offset
-    const label = d3.select(this).select(".node-label");
-    label.attr("dx", iconSize / 2 + labelPadding);
+    group.select("circle.halo").attr("r", sizes.haloRadius);
+    group.select("image")
+      .attr("width", sizes.imageSize)
+      .attr("height", sizes.imageSize)
+      .attr("x", -sizes.imageSize / 2)
+      .attr("y", -sizes.imageSize / 2);
+    group.select("circle.fallback").attr("r", sizes.fallbackRadius);
+    group.select(".node-label").attr("dx", sizes.haloRadius + labelPadding);
   });
+}
+
+function getNodeSizes(d, scale_percentage = 1) {
+  const config = iconConfig[d.type];
+  const ratio = config && typeof config.ratio === "number" ? config.ratio : 1;
+  const haloRadius = ((IMAGE_SIZE * scale_percentage) * ratio) / 2 + 5 + NODE_STROKE_WIDTH;
+  const imageRatio = 0.65;
+  const imageSize = haloRadius * 2 * imageRatio;
+  const fallbackRadius = 10 * scale_percentage;
+  return { haloRadius, imageSize, fallbackRadius };
 }
 
 // Start visualization once DOM is loaded
