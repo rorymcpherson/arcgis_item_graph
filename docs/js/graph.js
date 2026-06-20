@@ -5,11 +5,11 @@ let currentHeight;
 let simulation;
 let dataPath;
 let filePath;
-let currentNodeSize = 40;
 const labelPadding = 20;
 
 const fileInput = document.getElementById("load-data");
 
+const FIXED_NODE_SCALE = 0.5;
 const NODE_FILL = "#d9e1e7ff";
 const NODE_FIXED_STROKE = "#378ccdff";
 const NODE_FLOATING_STROKE = "#e0b169ff";
@@ -148,6 +148,13 @@ const iconConfig = {
   },
 };
 
+function getNodeTitle(d) {
+  const typeSuffix = ` (${d.type})`;
+  return d.name.endsWith(typeSuffix)
+    ? d.name.slice(0, -typeSuffix.length)
+    : d.name;
+}
+
 window.addEventListener("resize", () => {
   const svg = document.querySelector("svg");
   if (svg) {
@@ -179,7 +186,6 @@ function triggerFileLoad() {
 
 const controls = [
   { name: "link-distance", force: "link", property: "distance" },
-  { name: "charge-strength", force: "charge", property: "strength" },
   { name: "collision-radius", force: "collision", property: "radius" },
 ];
 
@@ -199,6 +205,10 @@ async function initializeGraph() {
   document
     .getElementById("enable-popups")
     .addEventListener("change", handlePopupToggle);
+  
+  document
+    .getElementById("enable-labels")
+    .addEventListener("change", handleLabelToggle);
 
   initializePhysicsControls();
 }
@@ -217,6 +227,11 @@ function handlePopupToggle() {
       popupTimer = null;
     }
   }
+}
+
+function handleLabelToggle() {
+  const showLabels = document.getElementById("enable-labels").checked;
+  d3.selectAll(".node-label").style("display", showLabels ? "block" : "none");
 }
 
 function readLocalFile(file) {
@@ -247,8 +262,6 @@ function createGraph(graph) {
 
   if (graph.physics) {
     document.getElementById("link-distance").value = graph.physics.linkDistance;
-    document.getElementById("charge-strength").value =
-      graph.physics.chargeStrength;
     document.getElementById("collision-radius").value =
       graph.physics.collisionRadius;
   }
@@ -310,12 +323,6 @@ function createGraph(graph) {
         .forceLink(graph.links)
         .id((d) => d.id)
         .distance(Number(document.getElementById("link-distance").value))
-    )
-    .force(
-      "charge",
-      d3
-        .forceManyBody()
-        .strength(Number(document.getElementById("charge-strength").value))
     )
     .force("center", d3.forceCenter(currentWidth / 2, currentHeight / 2))
     .force(
@@ -423,8 +430,7 @@ function createGraph(graph) {
     .attr("stroke-opacity", 0) // <--- Hide the shaft
     .attr("marker-end", "url(#arrowhead)");
 
-  const scaleInput = document.querySelector('input[type="range"][oninput*="setNodeSize"]');
-  const scale_percentage = scaleInput ? scaleInput.value / 100 : 1;
+  const scale_percentage = FIXED_NODE_SCALE;
 
   nodeGroup
     .append("circle")
@@ -454,19 +460,31 @@ function createGraph(graph) {
       return "#69b3a2";
     });
 
-  nodeGroup
-    .append("text")
-    .attr("class", "node-label")
-    .attr("dx", (d) => getNodeSizes(d, scale_percentage).haloRadius + labelPadding)
-    .attr("dy", 4)
-    .text((d) => d.name);
+  const nodeLabel = nodeGroup
+      .append("text")
+      .attr("class", "node-label")
+      .attr("text-anchor", "middle")
+      .style("display", document.getElementById("enable-labels").checked ? "block" : "none");
+
+  nodeLabel
+      .append("tspan")
+      .attr("class", "node-label-title")
+      .attr("x", 0)
+      .attr("dy", (d) => getNodeSizes(d, scale_percentage).haloRadius + labelPadding)
+      .text((d) => getNodeTitle(d));
+
+  nodeLabel
+      .append("tspan")
+      .attr("class", "node-label-type")
+      .attr("x", 0)
+      .attr("dy", "1.2em")
+      .text((d) => d.type);
 
   d3.select("body").on("click", null);
   popup.on("click", null);
 
   simulation.on("tick", () => {
-    const scaleInput = document.querySelector('input[type="range"][oninput*="setNodeSize"]');
-    const scale_percentage = scaleInput ? scaleInput.value / 100 : 1;
+    const scale_percentage = FIXED_NODE_SCALE;
     const arrowLength = 5;
 
     linkLine
@@ -575,8 +593,6 @@ function updatePhysics(forceName, property, value) {
 
   if (forceName === "link") {
     simulation.force("link").distance(value);
-  } else if (forceName === "charge") {
-    simulation.force("charge").strength(value);
   } else if (forceName === "collision") {
     simulation.force("collision").radius(value);
   }
@@ -587,9 +603,8 @@ function updatePhysics(forceName, property, value) {
 function resetPhysics() {
   // Default values
   const defaults = {
-    "link-distance": 100,
-    "charge-strength": -20,
-    "collision-radius": 75,
+    "link-distance": 200,
+    "collision-radius": 100,
   };
 
   // Update all controls
@@ -606,147 +621,6 @@ function resetPhysics() {
       updatePhysics(control.force, control.property, value);
     }
   });
-}
-
-async function saveAsSVG() {
-  const svgElement = document.querySelector("svg");
-  if (!svgElement) {
-    alert("No graph data to save");
-    return;
-  }
-
-  // Clone the SVG node deeply
-  const clone = svgElement.cloneNode(true);
-
-  // Inline all CSS styles
-  let styleText = "";
-  document.querySelectorAll("style, link[rel='stylesheet']").forEach((styleNode) => {
-    if (styleNode.tagName === "STYLE") {
-      styleText += styleNode.textContent;
-    } else if (styleNode.tagName === "LINK") {
-      try {
-        const xhr = new XMLHttpRequest();
-        xhr.open("GET", styleNode.href, false);
-        xhr.send();
-        if (xhr.status === 200) {
-          styleText += xhr.responseText;
-        }
-      } catch (e) {}
-    }
-  });
-  if (styleText) {
-    const styleElem = document.createElement("style");
-    styleElem.textContent = styleText;
-    clone.insertBefore(styleElem, clone.firstChild);
-  }
-
-  // Inline all external images as base64
-  const imageElements = clone.querySelectorAll("image");
-  const imagePromises = [];
-  imageElements.forEach((imgElem) => {
-    const href = imgElem.getAttribute("xlink:href") || imgElem.getAttribute("href");
-    if (href && !href.startsWith("data:")) {
-      imagePromises.push(
-        fetch(href)
-          .then(response => response.text())
-          .then(svgText => {
-            const base64 = btoa(unescape(encodeURIComponent(svgText)));
-            imgElem.setAttribute("xlink:href", "data:image/svg+xml;base64," + base64);
-          })
-          .catch(() => {
-            // If fetch fails, leave the original href
-          })
-      );
-    }
-  });
-
-  // Wait for all images to be inlined
-  await Promise.all(imagePromises);
-
-  // Serialize the SVG
-  const serializer = new XMLSerializer();
-  let svgString = serializer.serializeToString(clone);
-
-  // Fix for missing xmlns attribute
-  if (!svgString.match(/^<svg[^>]+xmlns="http:\/\/www\.w3\.org\/2000\/svg"/)) {
-    svgString = svgString.replace(
-      /^<svg/,
-      '<svg xmlns="http://www.w3.org/2000/svg"'
-    );
-  }
-
-  // Download
-  const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-
-  const filename =
-    filePath && filePath.name
-      ? filePath.name.replace(/\.[^/.]+$/, "")
-      : "graph";
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${filename}.svg`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
-function saveGraphToFile() {
-  if (!currentGraph || !simulation) {
-    alert("No graph to save.");
-    return;
-  }
-
-  // Clone nodes with position and fixed state
-  const graphCopy = {
-    nodes: currentGraph.nodes.map((node) => ({
-      ...node,
-      x: node.x,
-      y: node.y,
-      fx: node.fx,
-      fy: node.fy,
-      selected: node.selected || false,
-    })),
-    links: currentGraph.links.map((link) => ({
-      source: typeof link.source === "object" ? link.source.id : link.source,
-      target: typeof link.target === "object" ? link.target.id : link.target,
-    })),
-    physics: {
-      linkDistance: Number(document.getElementById("link-distance").value),
-      chargeStrength: Number(document.getElementById("charge-strength").value),
-      collisionRadius: Number(
-        document.getElementById("collision-radius").value
-      ),
-    },
-    camera: (() => {
-      const transform = d3.zoomTransform(d3.select("svg").node());
-      return {
-        x: transform.x,
-        y: transform.y,
-        k: transform.k,
-      };
-    })(),
-    popupEnabled: document.getElementById("enable-popups").checked,
-  };
-
-  const blob = new Blob([JSON.stringify(graphCopy, null, 2)], {
-    type: "application/json",
-  });
-
-  const url = URL.createObjectURL(blob);
-  // use the filePath name if it exists, otherwise default to "graph"
-  const filename =
-    filePath && filePath.name
-      ? filePath.name.replace(/\.[^/.]+$/, "") // remove extension
-      : "graph";
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${filename}.json`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
 }
 
 function updateHaloColor(selection, nodeData) {
@@ -767,43 +641,6 @@ function resetAllNodesToFloating() {
     const node = d3.select(this);
     updateHaloColor(node, node.datum());
   });
-}
-
-function setNodeSize(scale) {
-  const scale_percentage = scale / 100;
-
-  d3.selectAll("g.node-group").each(function (d) {
-    const group = d3.select(this);
-    const sizes = getNodeSizes(d, scale_percentage);
-
-    group.select("circle.halo").attr("r", sizes.haloRadius);
-    group.select("image")
-      .attr("width", sizes.imageSize)
-      .attr("height", sizes.imageSize)
-      .attr("x", -sizes.imageSize / 2)
-      .attr("y", -sizes.imageSize / 2);
-    group.select("circle.fallback").attr("r", sizes.fallbackRadius);
-    group.select(".node-label").attr("dx", sizes.haloRadius + labelPadding);
-  });
-
-  // Force simulation to update node positions
-  if (simulation) {
-    simulation.alpha(0.3).restart();
-  }
-
-  // // Update link endpoints so arrowheads stay at the edge of the halo
-  // d3.selectAll("line.link").each(function (d) {
-  //   const dx = d.target.x - d.source.x;
-  //   const dy = d.target.y - d.source.y;
-  //   const dist = Math.sqrt(dx * dx + dy * dy);
-  //   const sizes = getNodeSizes(d.target, scale_percentage);
-  //   const r = sizes.haloRadius;
-  //   const x2 = dist === 0 ? d.target.x : d.target.x - (dx / dist) * r;
-  //   const y2 = dist === 0 ? d.target.y : d.target.y - (dy / dist) * r;
-  //   d3.select(this)
-  //     .attr("x2", x2)
-  //     .attr("y2", y2);
-  // });
 }
 
 function getNodeSizes(d, scale_percentage = 1) {
